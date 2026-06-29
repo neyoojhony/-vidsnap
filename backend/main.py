@@ -38,6 +38,10 @@ def detect_platform(url: str) -> str:
 def root():
     return {"status": "VidSnap API running"}
 
+@app.head("/")
+def root_head():
+    return {}
+
 @app.post("/api/info")
 def get_video_info(req: InfoRequest):
     ydl_opts = {

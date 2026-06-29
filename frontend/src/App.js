@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "./App.css";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
@@ -36,8 +36,11 @@ export default function App() {
   const [videoInfo, setVideoInfo] = useState(null);
   const [selectedFormat, setSelectedFormat] = useState(null);
   const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const progressInterval = useRef(null);
 
   useEffect(() => {
     try {
@@ -65,6 +68,49 @@ export default function App() {
   function clearHistory() {
     setHistory([]);
     try { localStorage.removeItem(HISTORY_KEY); } catch (e) {}
+  }
+
+  function startProgress() {
+    setProgress(0);
+    setProgressLabel("Connecting to server...");
+    let current = 0;
+    const stages = [
+      { target: 15, speed: 80, label: "Connecting to server..." },
+      { target: 35, speed: 60, label: "Fetching video..." },
+      { target: 60, speed: 40, label: "Processing video..." },
+      { target: 80, speed: 30, label: "Preparing download..." },
+      { target: 90, speed: 50, label: "Almost done..." },
+    ];
+    let stageIdx = 0;
+
+    clearInterval(progressInterval.current);
+    progressInterval.current = setInterval(() => {
+      const stage = stages[stageIdx];
+      if (!stage) return;
+      if (current < stage.target) {
+        current += 0.5;
+        setProgress(Math.min(current, stage.target));
+        setProgressLabel(stage.label);
+      } else {
+        stageIdx++;
+      }
+    }, 50);
+  }
+
+  function finishProgress() {
+    clearInterval(progressInterval.current);
+    setProgress(100);
+    setProgressLabel("Download complete! ✓");
+    setTimeout(() => {
+      setProgress(0);
+      setProgressLabel("");
+    }, 2000);
+  }
+
+  function resetProgress() {
+    clearInterval(progressInterval.current);
+    setProgress(0);
+    setProgressLabel("");
   }
 
   async function handleFetch(fetchUrl) {
@@ -101,6 +147,9 @@ export default function App() {
   async function handleDownload() {
     if (!videoInfo || !selectedFormat) return;
     setDownloading(true);
+    setError("");
+    startProgress();
+
     try {
       const params = new URLSearchParams({ url: url.trim(), format_id: selectedFormat });
       const res = await fetch(`${API_URL}/api/download?${params}`);
@@ -111,12 +160,15 @@ export default function App() {
       const match = disposition.match(/filename="(.+?)"/);
       const filename = match ? match[1] : "vidsnap_download.mp4";
 
+      finishProgress();
+
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = filename;
       link.click();
       URL.revokeObjectURL(link.href);
     } catch (e) {
+      resetProgress();
       setError("Download failed. Please try again.");
     } finally {
       setDownloading(false);
@@ -152,7 +204,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* URL History Dropdown */}
           {showHistory && history.length > 0 && (
             <div className="history-dropdown">
               <div className="history-header">
@@ -228,6 +279,23 @@ export default function App() {
                   </button>
                 ))}
               </div>
+
+              {/* Progress Bar */}
+              {downloading && (
+                <div className="progress-wrap">
+                  <div className="progress-info">
+                    <span className="progress-label">{progressLabel}</span>
+                    <span className="progress-pct">{Math.round(progress)}%</span>
+                  </div>
+                  <div className="progress-track">
+                    <div
+                      className={`progress-fill ${progress === 100 ? "complete" : ""}`}
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <button className="btn-download" onClick={handleDownload} disabled={downloading}>
                 {downloading ? (
                   <><span className="spinner white" />Downloading…</>
@@ -246,7 +314,6 @@ export default function App() {
           </section>
         )}
 
-        {/* History Section */}
         {!videoInfo && !loading && history.length > 0 && (
           <section className="history-section">
             <div className="history-section-header">

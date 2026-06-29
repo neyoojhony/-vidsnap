@@ -16,6 +16,14 @@ app.add_middleware(
 )
 
 COOKIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
+YT_COOKIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies.txt")
+
+def get_cookies(url: str):
+    if re.search(r"(youtube\.com|youtu\.be)", url) and os.path.exists(YT_COOKIES_PATH):
+        return YT_COOKIES_PATH
+    if os.path.exists(COOKIES_PATH):
+        return COOKIES_PATH
+    return None
 
 class InfoRequest(BaseModel):
     url: str
@@ -48,7 +56,7 @@ def get_video_info(req: InfoRequest):
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        **({"cookiefile": COOKIES_PATH} if os.path.exists(COOKIES_PATH) else {}),
+        **({"cookiefile": _ck} if (_ck := get_cookies(req.url if hasattr(req, "url") else url)) else {}),
     }
 
     try:
@@ -130,7 +138,7 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
         "no_warnings": True,
         "merge_output_format": "mp4",
         "postprocessors": postprocessors,
-        **({"cookiefile": COOKIES_PATH} if os.path.exists(COOKIES_PATH) else {}),
+        **({"cookiefile": _ck} if (_ck := get_cookies(req.url if hasattr(req, "url") else url)) else {}),
     }
 
     try:

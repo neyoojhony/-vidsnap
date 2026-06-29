@@ -29,6 +29,11 @@ function timeAgo(ts) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function getYouTubeId(url) {
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|shorts\/|embed\/))([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
 export default function App() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,6 +45,7 @@ export default function App() {
   const [progressLabel, setProgressLabel] = useState("");
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const progressInterval = useRef(null);
 
   useEffect(() => {
@@ -75,14 +81,13 @@ export default function App() {
     setProgressLabel("Connecting to server...");
     let current = 0;
     const stages = [
-      { target: 15, speed: 80, label: "Connecting to server..." },
-      { target: 35, speed: 60, label: "Fetching video..." },
-      { target: 60, speed: 40, label: "Processing video..." },
-      { target: 80, speed: 30, label: "Preparing download..." },
-      { target: 90, speed: 50, label: "Almost done..." },
+      { target: 15, label: "Connecting to server..." },
+      { target: 35, label: "Fetching video..." },
+      { target: 60, label: "Processing video..." },
+      { target: 80, label: "Preparing download..." },
+      { target: 90, label: "Almost done..." },
     ];
     let stageIdx = 0;
-
     clearInterval(progressInterval.current);
     progressInterval.current = setInterval(() => {
       const stage = stages[stageIdx];
@@ -91,9 +96,7 @@ export default function App() {
         current += 0.5;
         setProgress(Math.min(current, stage.target));
         setProgressLabel(stage.label);
-      } else {
-        stageIdx++;
-      }
+      } else { stageIdx++; }
     }, 50);
   }
 
@@ -101,10 +104,7 @@ export default function App() {
     clearInterval(progressInterval.current);
     setProgress(100);
     setProgressLabel("Download complete! ✓");
-    setTimeout(() => {
-      setProgress(0);
-      setProgressLabel("");
-    }, 2000);
+    setTimeout(() => { setProgress(0); setProgressLabel(""); }, 2000);
   }
 
   function resetProgress() {
@@ -122,6 +122,7 @@ export default function App() {
     setVideoInfo(null);
     setSelectedFormat(null);
     setShowHistory(false);
+    setShowPreview(false);
 
     try {
       const res = await fetch(`${API_URL}/api/info`, {
@@ -149,19 +150,15 @@ export default function App() {
     setDownloading(true);
     setError("");
     startProgress();
-
     try {
       const params = new URLSearchParams({ url: url.trim(), format_id: selectedFormat });
       const res = await fetch(`${API_URL}/api/download?${params}`);
       if (!res.ok) throw new Error("Download failed");
-
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") || "";
       const match = disposition.match(/filename="(.+?)"/);
       const filename = match ? match[1] : "vidsnap_download.mp4";
-
       finishProgress();
-
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
       link.download = filename;
@@ -174,6 +171,9 @@ export default function App() {
       setDownloading(false);
     }
   }
+
+  const ytId = videoInfo ? getYouTubeId(url) : null;
+  const isYouTube = !!ytId;
 
   return (
     <div className="app">
@@ -249,17 +249,43 @@ export default function App() {
 
         {videoInfo && (
           <section className="result-card">
-            <div className="result-thumb">
-              {videoInfo.thumbnail ? (
-                <img src={videoInfo.thumbnail} alt="thumbnail" />
+            {/* Thumbnail / Preview */}
+            <div className="result-thumb" onClick={() => setShowPreview(true)} style={{ cursor: "pointer" }}>
+              {showPreview && isYouTube ? (
+                <iframe
+                  src={`https://www.youtube.com/embed/${ytId}?autoplay=1`}
+                  title="preview"
+                  frameBorder="0"
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen
+                  className="preview-iframe"
+                />
               ) : (
-                <div className="thumb-placeholder">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="40" height="40">
-                    <polygon points="5 3 19 12 5 21 5 3" />
-                  </svg>
-                </div>
+                <>
+                  {videoInfo.thumbnail ? (
+                    <img src={videoInfo.thumbnail} alt="thumbnail" />
+                  ) : (
+                    <div className="thumb-placeholder">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" width="40" height="40">
+                        <polygon points="5 3 19 12 5 21 5 3" />
+                      </svg>
+                    </div>
+                  )}
+                  {/* Play overlay */}
+                  <div className="play-overlay">
+                    <div className="play-btn">
+                      <svg viewBox="0 0 24 24" fill="white" width="28" height="28">
+                        <polygon points="5 3 19 12 5 21 5 3" />
+                      </svg>
+                    </div>
+                    <span className="play-label">
+                      {isYouTube ? "Play preview" : "Preview not available"}
+                    </span>
+                  </div>
+                </>
               )}
             </div>
+
             <div className="result-body">
               <div className="result-meta-top">
                 <span className="platform-badge">{videoInfo.platform}</span>
@@ -280,7 +306,6 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Progress Bar */}
               {downloading && (
                 <div className="progress-wrap">
                   <div className="progress-info">

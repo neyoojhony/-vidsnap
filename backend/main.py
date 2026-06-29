@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -17,10 +18,29 @@ app.add_middleware(
 
 COOKIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
 
+def is_youtube(url: str) -> bool:
+    return bool(re.search(r"(youtube\.com|youtu\.be)", url))
+
 def get_cookies(url: str):
     if os.path.exists(COOKIES_PATH):
         return COOKIES_PATH
     return None
+
+def get_ydl_opts(url: str, extra: dict = {}) -> dict:
+    ck = get_cookies(url)
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        **({"cookiefile": ck} if ck else {}),
+        **extra,
+    }
+    if is_youtube(url):
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": ["ios", "web"],
+            }
+        }
+    return opts
 
 class InfoRequest(BaseModel):
     url: str
@@ -49,13 +69,7 @@ def root_head():
 
 @app.post("/api/info")
 def get_video_info(req: InfoRequest):
-    ck = get_cookies(req.url)
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        **({"cookiefile": ck} if ck else {}),
-    }
+    ydl_opts = get_ydl_opts(req.url, {"skip_download": True})
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -120,7 +134,6 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
     tmp_dir = tempfile.mkdtemp()
     out_template = os.path.join(tmp_dir, "%(title)s.%(ext)s")
 
-    ck = get_cookies(url)
     is_audio_only = (format_id == "bestaudio/best")
 
     if is_audio_only:
@@ -130,15 +143,12 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
         actual_format = "bestvideo+bestaudio/best"
         postprocessors = []
 
-    ydl_opts = {
+    ydl_opts = get_ydl_opts(url, {
         "format": actual_format,
         "outtmpl": out_template,
-        "quiet": True,
-        "no_warnings": True,
         "merge_output_format": "mp4",
         "postprocessors": postprocessors,
-        **({"cookiefile": ck} if ck else {}),
-    }
+    })
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

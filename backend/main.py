@@ -52,11 +52,12 @@ def root_head():
 
 @app.post("/api/info")
 def get_video_info(req: InfoRequest):
+    ck = get_cookies(req.url)
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
-        **({"cookiefile": _ck} if (_ck := get_cookies(req.url if hasattr(req, "url") else url)) else {}),
+        **({"cookiefile": ck} if ck else {}),
     }
 
     try:
@@ -91,13 +92,12 @@ def get_video_info(req: InfoRequest):
             })
 
     if not formats:
-        for q_label, fmt in [("Best quality", "best"), ("Medium quality", "bestvideo[height<=720]+bestaudio/best[height<=720]"), ("Low quality", "bestvideo[height<=480]+bestaudio/best[height<=480]")]:
-            formats.append({
-                "format_id": fmt,
-                "label": f"MP4 — {q_label}",
-                "ext": "mp4",
-                "filesize_mb": None,
-            })
+        formats.append({
+            "format_id": "bestvideo+bestaudio/best",
+            "label": "MP4 — Best quality",
+            "ext": "mp4",
+            "filesize_mb": None,
+        })
 
     formats.append({
         "format_id": "bestaudio/best",
@@ -122,13 +122,14 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
     tmp_dir = tempfile.mkdtemp()
     out_template = os.path.join(tmp_dir, "%(title)s.%(ext)s")
 
+    ck = get_cookies(url)
     is_audio_only = (format_id == "bestaudio/best")
 
     if is_audio_only:
         actual_format = "bestaudio/best"
         postprocessors = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}]
     else:
-        actual_format = "bestvideo+bestaudio/best"
+        actual_format = format_id if "bestvideo" in format_id else "bestvideo+bestaudio/best"
         postprocessors = []
 
     ydl_opts = {
@@ -138,7 +139,7 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
         "no_warnings": True,
         "merge_output_format": "mp4",
         "postprocessors": postprocessors,
-        **({"cookiefile": _ck} if (_ck := get_cookies(req.url if hasattr(req, "url") else url)) else {}),
+        **({"cookiefile": ck} if ck else {}),
     }
 
     try:

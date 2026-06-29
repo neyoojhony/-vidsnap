@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -21,7 +20,11 @@ COOKIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies
 def is_youtube(url: str) -> bool:
     return bool(re.search(r"(youtube\.com|youtu\.be)", url))
 
+YT_COOKIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies.txt")
+
 def get_cookies(url: str):
+    if re.search(r"youtube|youtu\.be", url) and os.path.exists(YT_COOKIES_PATH):
+        return YT_COOKIES_PATH
     if os.path.exists(COOKIES_PATH):
         return COOKIES_PATH
     return None

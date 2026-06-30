@@ -15,35 +15,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-COOKIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cookies.txt")
-
-def is_youtube(url: str) -> bool:
-    return bool(re.search(r"(youtube\.com|youtu\.be)", url))
-
-YT_COOKIES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies.txt")
-
-def get_cookies(url: str):
-    if re.search(r"youtube|youtu\.be", url) and os.path.exists(YT_COOKIES_PATH):
-        return YT_COOKIES_PATH
-    if os.path.exists(COOKIES_PATH):
-        return COOKIES_PATH
+def find_file(filename: str):
+    """Search for file in multiple possible locations"""
+    possible = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), filename),
+        os.path.join(os.getcwd(), filename),
+        os.path.join("/opt/render/project/src/backend", filename),
+        os.path.join("/opt/render/project/src", filename),
+    ]
+    for path in possible:
+        if os.path.exists(path):
+            return path
     return None
 
-def get_ydl_opts(url: str, extra: dict = {}) -> dict:
-    ck = get_cookies(url)
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        **({"cookiefile": ck} if ck else {}),
-        **extra,
-    }
-    if is_youtube(url):
-        opts["extractor_args"] = {
-            "youtube": {
-                "player_client": ["ios", "web"],
-            }
-        }
-    return opts
+def get_cookies(url: str):
+    if re.search(r"youtube\.com|youtu\.be", url):
+        yt = find_file("youtube_cookies.txt")
+        if yt:
+            return yt
+    ck = find_file("cookies.txt")
+    return ck
 
 class InfoRequest(BaseModel):
     url: str
@@ -70,9 +61,30 @@ def root():
 def root_head():
     return {}
 
+@app.get("/debug")
+def debug():
+    base = os.path.dirname(os.path.abspath(__file__))
+    cwd = os.getcwd()
+    render_path = "/opt/render/project/src/backend"
+    return {
+        "base_dir": base,
+        "cwd": cwd,
+        "base_files": os.listdir(base) if os.path.exists(base) else [],
+        "cwd_files": os.listdir(cwd) if os.path.exists(cwd) else [],
+        "render_files": os.listdir(render_path) if os.path.exists(render_path) else [],
+        "yt_cookies": find_file("youtube_cookies.txt"),
+        "cookies": find_file("cookies.txt"),
+    }
+
 @app.post("/api/info")
 def get_video_info(req: InfoRequest):
-    ydl_opts = get_ydl_opts(req.url, {"skip_download": True})
+    ck = get_cookies(req.url)
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        **({"cookiefile": ck} if ck else {}),
+    }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -137,6 +149,7 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
     tmp_dir = tempfile.mkdtemp()
     out_template = os.path.join(tmp_dir, "%(title)s.%(ext)s")
 
+    ck = get_cookies(url)
     is_audio_only = (format_id == "bestaudio/best")
 
     if is_audio_only:
@@ -146,12 +159,15 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
         actual_format = "bestvideo+bestaudio/best"
         postprocessors = []
 
-    ydl_opts = get_ydl_opts(url, {
+    ydl_opts = {
         "format": actual_format,
         "outtmpl": out_template,
+        "quiet": True,
+        "no_warnings": True,
         "merge_output_format": "mp4",
         "postprocessors": postprocessors,
-    })
+        **({"cookiefile": ck} if ck else {}),
+    }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

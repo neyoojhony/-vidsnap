@@ -16,7 +16,6 @@ app.add_middleware(
 )
 
 def find_file(filename: str):
-    """Search for file in multiple possible locations"""
     possible = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), filename),
         os.path.join(os.getcwd(), filename),
@@ -29,10 +28,12 @@ def find_file(filename: str):
     return None
 
 def get_cookies(url: str):
+    # YouTube ke liye youtube_cookies.txt
     if re.search(r"youtube\.com|youtu\.be", url):
         yt = find_file("youtube_cookies.txt")
         if yt:
             return yt
+    # Instagram aur baaki ke liye cookies.txt
     ck = find_file("cookies.txt")
     return ck
 
@@ -61,21 +62,6 @@ def root():
 def root_head():
     return {}
 
-@app.get("/debug")
-def debug():
-    base = os.path.dirname(os.path.abspath(__file__))
-    cwd = os.getcwd()
-    render_path = "/opt/render/project/src/backend"
-    return {
-        "base_dir": base,
-        "cwd": cwd,
-        "base_files": os.listdir(base) if os.path.exists(base) else [],
-        "cwd_files": os.listdir(cwd) if os.path.exists(cwd) else [],
-        "render_files": os.listdir(render_path) if os.path.exists(render_path) else [],
-        "yt_cookies": find_file("youtube_cookies.txt"),
-        "cookies": find_file("cookies.txt"),
-    }
-
 @app.post("/api/info")
 def get_video_info(req: InfoRequest):
     ck = get_cookies(req.url)
@@ -90,7 +76,10 @@ def get_video_info(req: InfoRequest):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(req.url, download=False)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not fetch video: {str(e)}")
+        err_str = str(e)
+        if "Sign in to confirm" in err_str or "not a bot" in err_str:
+            raise HTTPException(status_code=400, detail="YouTube is temporarily blocking this server. Please try Instagram, TikTok, Twitter or Facebook links instead.")
+        raise HTTPException(status_code=400, detail=f"Could not fetch video: {err_str}")
 
     title = info.get("title", "Video")
     thumbnail = info.get("thumbnail", "")
@@ -173,7 +162,10 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        err_str = str(e)
+        if "Sign in to confirm" in err_str or "not a bot" in err_str:
+            raise HTTPException(status_code=400, detail="YouTube is temporarily blocking this server.")
+        raise HTTPException(status_code=400, detail=err_str)
 
     files = list(pathlib.Path(tmp_dir).iterdir())
     if not files:
@@ -181,7 +173,11 @@ def download_video(url: str = Query(...), format_id: str = Query("best")):
 
     filepath = files[0]
     ext = filepath.suffix.lstrip(".")
-    safe_title = re.sub(r'[^\w\s-]', '', info.get("title", "video"))[:60].strip()
+
+    # ASCII-safe filename — Hindi/Emoji titles fix
+    raw_title = info.get("title", "video")
+    safe_title = raw_title.encode('ascii', 'ignore').decode('ascii')
+    safe_title = re.sub(r'[^\w\s-]', '', safe_title)[:60].strip() or "vidsnap_download"
     download_name = f"{safe_title}.{ext}"
 
     def file_stream():
